@@ -159,7 +159,6 @@ contract("Subnet test", async accounts => {
       });
     }
     
-
     var [block1, block1_hash] = composeBlock(1, 0, this.genesis_hash);
     var [block2, block2_hash] = composeBlock(2, 1, block1_hash);
     var [block3, block3_hash] = composeBlock(3, 2, block2_hash);
