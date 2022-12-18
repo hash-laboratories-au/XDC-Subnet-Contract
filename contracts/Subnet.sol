@@ -18,6 +18,7 @@ contract Subnet {
     uint64 number;
     bytes32 parent_hash;
     bool finalized;
+    uint mainnet_num;
   }
 
   address public master;
@@ -46,7 +47,8 @@ contract Subnet {
       round_num: 0, 
       number: 0,
       parent_hash: genesis_header.parent_hash,
-      finalized: true
+      finalized: true,
+      mainnet_num: block.number
     });
     validator_sets[0] = initial_validator_set;
     for (uint i = 0; i < validator_sets[0].length; i++) {
@@ -90,7 +92,8 @@ contract Subnet {
       round_num: header.round_num, 
       number: header.number,
       parent_hash: header.parent_hash,
-      finalized: false
+      finalized: false,
+      mainnet_num: block.number
     });
     emit SubnetBlockAccepted(header_hash, header.number);
 
@@ -163,9 +166,17 @@ contract Subnet {
     x[2] = RLPEncode.encodeBytes(abi.encodePacked(parent_hash));
     return RLPEncode.encodeList(x);
   }
-  
-  function getHeaderStatus(bytes32 header_hash) public view returns (Header memory) {
+
+  function getHeader(bytes32 header_hash) public view returns (Header memory) {
     return header_tree[header_hash];
+  }
+  
+  function getHeaderConfirmationStatus(bytes32 header_hash) public view returns (bool) {
+    return header_tree[header_hash].finalized;
+  }
+
+  function getMainnetBlockNumber(bytes32 header_hash) public view returns (uint) {
+    return header_tree[header_hash].mainnet_num;
   }
 
 }
