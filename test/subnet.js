@@ -125,7 +125,9 @@ contract("Subnet test", async accounts => {
 
     const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
     const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
     assert.equal(finalized, false);
+    assert.equal(latest_finalized_block, this.genesis_hash);
   });
 
   it("Confirm A Received Block", async() => {
@@ -184,7 +186,9 @@ contract("Subnet test", async accounts => {
     assert.equal(block1_resp.number, "1");
     const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
     const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
     assert.equal(finalized, true);
+    assert.equal(latest_finalized_block, block1_hash);
   });
 
   it("Lookup the transaction", async() => {

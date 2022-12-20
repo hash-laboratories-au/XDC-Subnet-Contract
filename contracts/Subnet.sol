@@ -28,6 +28,7 @@ contract Subnet {
   mapping(address => bool) public lookup;
   uint64 public current_validator_set_pointer = 0;
   uint64 public current_subnet_height;
+  bytes32 public latest_finalized_block;
 
   // Event types
   event SubnetBlockAccepted(bytes32 header_hash, uint64 number);
@@ -55,6 +56,7 @@ contract Subnet {
       lookup[validator_sets[0][i]] = true;
     }
     master = msg.sender;
+    latest_finalized_block = genesis_header_hash;
   }
 
   function reviseValidatorSet(address[] memory new_validator_set, uint64 subnet_block_height) public onlyMaster  {
@@ -105,6 +107,7 @@ contract Subnet {
       if (header_tree[curr_hash].round_num != header_tree[parent_hash].round_num+1) return;
       curr_hash = parent_hash;
     }
+    latest_finalized_block = curr_hash;
     // Confirm all ancestor unconfirmed block
     while (header_tree[curr_hash].finalized != true) {
       header_tree[curr_hash].finalized = true;
@@ -177,6 +180,10 @@ contract Subnet {
 
   function getMainnetBlockNumber(bytes32 header_hash) public view returns (uint) {
     return header_tree[header_hash].mainnet_num;
+  }
+
+  function getLatestFinalizedBlock() public view returns (bytes32) {
+    return latest_finalized_block;
   }
 
 }
