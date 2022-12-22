@@ -155,7 +155,7 @@ library RLPEncode {
      * @param _src Source location.
      * @param _len Length of memory to copy.
      */
-    function memcpy(uint _dest, uint _src, uint _len) internal pure {
+    function memcpy(uint _dest, uint _src, uint _len) private pure {
         uint dest = _dest;
         uint src = _src;
         uint len = _len;
