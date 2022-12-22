@@ -77,13 +77,34 @@ contract("Subnet test", async accounts => {
         new Uint8Array(8),
     ])));
 
+    this.genesis_encoded = "0x"+Buffer.from(RLP.encode([
+      util.zeros(32),
+      util.zeros(32),
+      util.zeros(32),
+      util.zeros(32),
+      util.zeros(32),
+      util.zeros(32),
+      new Uint8Array(256),
+      util.bigIntToUnpaddedBuffer(0),
+      util.bigIntToUnpaddedBuffer(0),
+      util.bigIntToUnpaddedBuffer(0),
+      util.bigIntToUnpaddedBuffer(0),
+      util.bigIntToUnpaddedBuffer(0),
+      new Uint8Array([...version, ...RLP.encode(0)]),
+      util.zeros(32),
+      new Uint8Array(8),
+      new Uint8Array(8),
+      new Uint8Array(8),
+      new Uint8Array(8),
+    ])).toString("hex");
+
     for (let i = 0; i < 3; i++) {
       this.validators.push(web3.eth.accounts.create());
       this.validators_addr.push(this.validators.at(-1).address);
     }
     this.subnet = await Subnet.new(
       this.validators_addr,
-      this.genesis_block,
+      this.genesis_encoded,
       {"from": accounts[0]}
     );
     this.decoder = await forContractInstance(this.subnet);
