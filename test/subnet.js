@@ -1,7 +1,7 @@
+const { forContractInstance } =  require("@truffle/decoder");
 const RLP = require("rlp");
 const util = require("@ethereumjs/util");
 const secp256k1 = require("secp256k1");
-
 const Subnet = artifacts.require("Subnet");
 
 const num2Arr = (n) => {
@@ -36,14 +36,15 @@ contract("Subnet test", async accounts => {
     this.genesis_block = {
       "number": 0,
       "round_num": 0,
+      "gap_num": 0,
       "parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     }
     this.genesis_hash = web3.utils.sha3(Buffer.from(
-      RLP.encode([
+      RLP.encode([[
         util.bigIntToUnpaddedBuffer(0),
         util.bigIntToUnpaddedBuffer(0),
         util.zeros(32),
-    ])));
+    ], util.bigIntToUnpaddedBuffer(0)])));
 
     for (let i = 0; i < 3; i++) {
       this.validators.push(web3.eth.accounts.create());
@@ -54,6 +55,7 @@ contract("Subnet test", async accounts => {
       this.genesis_block,
       {"from": accounts[0]}
     );
+    this.decoder = await forContractInstance(this.subnet);
   })
 
   it("Running setup", async() => {
@@ -86,14 +88,15 @@ contract("Subnet test", async accounts => {
     const block1 = {
       "number": 1,
       "round_num": 0,
+      "gap_num": 0,
       "parent_hash": this.genesis_hash,
     };
     const block1_hash = web3.utils.sha3(Buffer.from(
-      RLP.encode([
+      RLP.encode([[
         util.bigIntToUnpaddedBuffer(1),
         util.bigIntToUnpaddedBuffer(0),
         util.toBuffer(this.genesis_hash)
-    ])));
+    ], util.bigIntToUnpaddedBuffer(0)])));
     for (let i = 0; i < 3; i++) {
       new_validators.push(web3.eth.accounts.create());
       raw_sigs.push(
@@ -117,28 +120,34 @@ contract("Subnet test", async accounts => {
     
     await this.subnet.receiveHeader(block1, sigs);
 
-    const block1_resp = await this.subnet.getHeaderStatus(block1_hash);
+    const block1_resp = await this.subnet.getHeader(block1_hash);
     assert.equal(block1_resp.parent_hash, this.genesis_hash);
     assert.equal(block1_resp.round_num, "0");
     assert.equal(block1_resp.number, "1");
-    assert.equal(block1_resp.finalized, false);
+    assert.equal(block1_resp.gap_num, "0");
 
+    const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
+    const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
+    assert.equal(finalized, false);
+    assert.equal(latest_finalized_block, this.genesis_hash);
   });
 
   it("Confirm A Received Block", async() => {
 
-    const composeBlock = (number, round_num, parent_hash) => {
+    const composeBlock = (number, round_num, gap_num, parent_hash) => {
       var block = {
         "number": number,
         "round_num": round_num,
+        "gap_num": gap_num,
         "parent_hash": parent_hash,
       }
       var block_hash = web3.utils.sha3(Buffer.from(
-        RLP.encode([
+        RLP.encode([[
           util.bigIntToUnpaddedBuffer(number),
           util.bigIntToUnpaddedBuffer(round_num),
           util.toBuffer(parent_hash),
-      ])));
+      ], util.bigIntToUnpaddedBuffer(gap_num)])));
       return [block, block_hash];
     }
 
@@ -160,10 +169,10 @@ contract("Subnet test", async accounts => {
     }
     
 
-    var [block1, block1_hash] = composeBlock(1, 0, this.genesis_hash);
-    var [block2, block2_hash] = composeBlock(2, 1, block1_hash);
-    var [block3, block3_hash] = composeBlock(3, 2, block2_hash);
-    var [block4, block4_hash] = composeBlock(4, 3, block3_hash);
+    var [block1, block1_hash] = composeBlock(1, 0, 0, this.genesis_hash);
+    var [block2, block2_hash] = composeBlock(2, 1, 0, block1_hash);
+    var [block3, block3_hash] = composeBlock(3, 2, 0, block2_hash);
+    var [block4, block4_hash] = composeBlock(4, 3, 0, block3_hash);
 
     let sigs1 = signBlock(block1_hash, this.validators);
     let sigs2 = signBlock(block2_hash, this.validators);
@@ -175,12 +184,62 @@ contract("Subnet test", async accounts => {
     await this.subnet.receiveHeader(block3, sigs3);
     await this.subnet.receiveHeader(block4, sigs4);
 
-    const block1_resp = await this.subnet.getHeaderStatus(block1_hash);
+    const block1_resp = await this.subnet.getHeader(block1_hash);
     assert.equal(block1_resp.parent_hash, this.genesis_hash);
     assert.equal(block1_resp.round_num, "0");
     assert.equal(block1_resp.number, "1");
-    assert.equal(block1_resp.finalized, true);
+    assert.equal(block1_resp.gap_num, "0");
 
+    const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
+    const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
+    assert.equal(finalized, true);
+    assert.equal(latest_finalized_block, block1_hash);
   });
 
+  it("Lookup the transaction", async() => {
+    const raw_sigs = [];
+    const block1 = {
+      "number": 1,
+      "round_num": 0,
+      "gap_num": 0,
+      "parent_hash": this.genesis_hash,
+    };
+    const block1_hash = web3.utils.sha3(Buffer.from(
+      RLP.encode([[
+        util.bigIntToUnpaddedBuffer(1),
+        util.bigIntToUnpaddedBuffer(0),
+        util.toBuffer(this.genesis_hash)
+    ], util.bigIntToUnpaddedBuffer(0)])));
+    for (let i = 0; i < 3; i++) {
+      raw_sigs.push(
+        secp256k1.ecdsaSign(
+          hex2Arr(block1_hash.substring(2)),
+          hex2Arr(this.validators[i].privateKey.substring(2))
+      ));
+    }
+
+    const sigs = raw_sigs.map(x => {
+      var res = new Uint8Array(65);
+      res.set(x.signature, 0);
+      res.set([x.recid], 64);
+      return "0x"+Buffer.from(res).toString("hex");
+    });
+
+    await this.subnet.receiveHeader(block1, sigs);
+    const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const transactionCount = await web3.eth.getBlockTransactionCount(mainnet_num);
+    for (let i = 0; i < transactionCount; i++) {
+      let transaction = await web3.eth.getTransactionFromBlock(mainnet_num, i);
+      let decodeData = await this.decoder.decodeTransaction(transaction);
+      let block_hash = web3.utils.sha3(Buffer.from(
+        RLP.encode([[
+          util.bigIntToUnpaddedBuffer(decodeData.arguments[0].value.value[0].value.value.asBN),
+          util.bigIntToUnpaddedBuffer(decodeData.arguments[0].value.value[1].value.value.asBN),
+          util.toBuffer(decodeData.arguments[0].value.value[3].value.value.asHex)
+      ], util.bigIntToUnpaddedBuffer(decodeData.arguments[0].value.value[2].value.value.asBN)])));
+      console.log(block_hash);
+      console.log(block1_hash);
+    }
+  });
 })
