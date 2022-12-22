@@ -7,15 +7,17 @@ import "./RLPEncode.sol";
 contract Subnet {
 
   struct SubnetHeader {
-    uint64 number;
+    int number;
     uint64 round_num;
+    uint64 gap_num;
     bytes32 parent_hash;
   }
 
   struct Header {
     bytes32 hash;
+    int number;
     uint64 round_num;
-    uint64 number;
+    uint64 gap_num;
     bytes32 parent_hash;
     bool finalized;
     uint mainnet_num;
@@ -24,15 +26,15 @@ contract Subnet {
   address public master;
   // bytes32[] public header_tree;
   mapping(bytes32 => Header) public header_tree;
-  mapping(uint64 => address[]) public validator_sets;
+  mapping(int => address[]) public validator_sets;
   mapping(address => bool) public lookup;
-  uint64 public current_validator_set_pointer = 0;
-  uint64 public current_subnet_height;
+  int public current_validator_set_pointer = 0;
+  int public current_subnet_height;
   bytes32 public latest_finalized_block;
 
   // Event types
-  event SubnetBlockAccepted(bytes32 header_hash, uint64 number);
-  event SubnetBlockFinalized(bytes32 header_hash, uint64 number);
+  event SubnetBlockAccepted(bytes32 header_hash, int number);
+  event SubnetBlockFinalized(bytes32 header_hash, int number);
 
   // Modifier
   modifier onlyMaster() {
@@ -45,8 +47,9 @@ contract Subnet {
     bytes32 genesis_header_hash = createHash(genesis_header);
     header_tree[genesis_header_hash] = Header({
       hash: genesis_header_hash,
-      round_num: 0, 
-      number: 0,
+      number: genesis_header.number,
+      round_num: genesis_header.round_num, 
+      gap_num: genesis_header.gap_num,
       parent_hash: genesis_header.parent_hash,
       finalized: true,
       mainnet_num: block.number
@@ -59,7 +62,7 @@ contract Subnet {
     latest_finalized_block = genesis_header_hash;
   }
 
-  function reviseValidatorSet(address[] memory new_validator_set, uint64 subnet_block_height) public onlyMaster  {
+  function reviseValidatorSet(address[] memory new_validator_set, int subnet_block_height) public onlyMaster  {
     require(new_validator_set.length > 0, "Validator set cannot be empty");
     require(subnet_block_height >= current_validator_set_pointer, "Error Modify Validator History");
     validator_sets[subnet_block_height] = new_validator_set;
@@ -91,8 +94,9 @@ contract Subnet {
     }
     header_tree[header_hash] = Header({
       hash: header_hash,
-      round_num: header.round_num, 
       number: header.number,
+      round_num: header.round_num, 
+      gap_num: header.gap_num,
       parent_hash: header.parent_hash,
       finalized: false,
       mainnet_num: block.number
@@ -114,9 +118,7 @@ contract Subnet {
       emit SubnetBlockFinalized(curr_hash, header_tree[curr_hash].number);
       curr_hash = header_tree[curr_hash].parent_hash;
     }
-    
   }
-
 
   /// signature methods.
   function splitSignature(bytes memory sig)
@@ -146,20 +148,17 @@ contract Subnet {
     return ecrecover(message, v, r, s);
   }
 
-  function prefixed(bytes memory data) internal pure returns (bytes32) {
-    // TODO: keccak256 => sha256, remove prefix
-    return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", data.length, data));
-  }
-
   function createHash(SubnetHeader memory header) internal pure returns (bytes32) {
 
     bytes[] memory x = new bytes[](3);
-    x[0] = RLPEncode.encodeUint(header.number);
+    x[0] = RLPEncode.encodeUint(uint(header.number));
     x[1] = RLPEncode.encodeUint(header.round_num);
     x[2] = RLPEncode.encodeBytes(abi.encodePacked(header.parent_hash));
 
-    bytes32 header_hash = keccak256(RLPEncode.encodeList(x));
-    return header_hash;
+    bytes[] memory y = new bytes[](2);
+    y[0] = RLPEncode.encodeList(x);
+    y[1] = RLPEncode.encodeUint(header.gap_num);
+    return keccak256(RLPEncode.encodeList(y));
   }
 
   function encoding(uint64 number, uint64 round_num, bytes32 parent_hash) pure public returns (bytes memory) {
