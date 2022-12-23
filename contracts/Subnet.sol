@@ -11,6 +11,7 @@ contract Subnet {
     uint64 round_num;
     uint64 gap_num;
     bytes32 parent_hash;
+    bytes32 block_hash;
   }
 
   struct Header {
@@ -32,8 +33,8 @@ contract Subnet {
   bytes32 public latest_finalized_block;
 
   // Event types
-  event SubnetBlockAccepted(bytes32 header_hash, int number);
-  event SubnetBlockFinalized(bytes32 header_hash, int number);
+  event SubnetBlockAccepted(bytes32 block_hash, int number);
+  event SubnetBlockFinalized(bytes32 block_hash, int number);
 
   // Modifier
   modifier onlyMaster() {
@@ -43,9 +44,8 @@ contract Subnet {
 
   constructor(address[] memory initial_validator_set, SubnetHeader memory genesis_header) public {
     require(initial_validator_set.length > 0, "Validator set cannot be empty");
-    bytes32 genesis_header_hash = createHash(genesis_header);
-    header_tree[genesis_header_hash] = Header({
-      hash: genesis_header_hash,
+    header_tree[genesis_header.block_hash] = Header({
+      hash: genesis_header.block_hash,
       number: genesis_header.number,
       round_num: genesis_header.round_num, 
       gap_num: genesis_header.gap_num,
@@ -58,7 +58,7 @@ contract Subnet {
       lookup[validator_sets[0][i]] = true;
     }
     master = msg.sender;
-    latest_finalized_block = genesis_header_hash;
+    latest_finalized_block = genesis_header.block_hash;
   }
 
   function reviseValidatorSet(address[] memory new_validator_set, int subnet_block_height) public onlyMaster  {
@@ -72,7 +72,7 @@ contract Subnet {
     require(header_tree[header.parent_hash].hash != 0, "Parent Hash Not Found");
     require(header_tree[header.parent_hash].number + 1 == header.number, "Invalid Parent Relation");
     bytes32 header_hash = createHash(header);
-    if (header_tree[header_hash].number > 0) 
+    if (header_tree[header.block_hash].number > 0) 
       revert("Header has been submitted");
     if (validator_sets[header.number].length > 0) {
       for (uint i = 0; i < validator_sets[current_validator_set_pointer].length; i++) {
@@ -91,8 +91,8 @@ contract Subnet {
         revert("Verification Fail");
       }
     }
-    header_tree[header_hash] = Header({
-      hash: header_hash,
+    header_tree[header.block_hash] = Header({
+      hash: header.block_hash,
       number: header.number,
       round_num: header.round_num, 
       gap_num: header.gap_num,
@@ -100,17 +100,17 @@ contract Subnet {
       finalized: false,
       mainnet_num: block.number
     });
-    emit SubnetBlockAccepted(header_hash, header.number);
+    emit SubnetBlockAccepted(header.block_hash, header.number);
 
     // Look for 3 consecutive round
-    bytes32 curr_hash = header_hash;
+    bytes32 curr_hash = header.block_hash;
     for (uint i = 0; i < 3; i++) {
       if (header_tree[curr_hash].parent_hash == 0) return;
       bytes32 parent_hash = header_tree[curr_hash].parent_hash;
       if (header_tree[curr_hash].round_num != header_tree[parent_hash].round_num+1) return;
       curr_hash = parent_hash;
     }
-    latest_finalized_block = curr_hash;
+    latest_finalized_block = header_tree[curr_hash].hash;
     // Confirm all ancestor unconfirmed block
     while (header_tree[curr_hash].finalized != true) {
       header_tree[curr_hash].finalized = true;
@@ -150,9 +150,9 @@ contract Subnet {
   function createHash(SubnetHeader memory header) internal pure returns (bytes32) {
 
     bytes[] memory x = new bytes[](3);
-    x[0] = RLPEncode.encodeUint(uint(header.number));
+    x[0] = RLPEncode.encodeBytes(abi.encodePacked(header.block_hash));
     x[1] = RLPEncode.encodeUint(header.round_num);
-    x[2] = RLPEncode.encodeBytes(abi.encodePacked(header.parent_hash));
+    x[2] = RLPEncode.encodeUint(uint(header.number));
 
     bytes[] memory y = new bytes[](2);
     y[0] = RLPEncode.encodeList(x);
@@ -160,16 +160,16 @@ contract Subnet {
     return keccak256(RLPEncode.encodeList(y));
   }
 
-  function getHeader(bytes32 header_hash) public view returns (Header memory) {
-    return header_tree[header_hash];
+  function getHeader(bytes32 block_hash) public view returns (Header memory) {
+    return header_tree[block_hash];
   }
   
-  function getHeaderConfirmationStatus(bytes32 header_hash) public view returns (bool) {
-    return header_tree[header_hash].finalized;
+  function getHeaderConfirmationStatus(bytes32 block_hash) public view returns (bool) {
+    return header_tree[block_hash].finalized;
   }
 
-  function getMainnetBlockNumber(bytes32 header_hash) public view returns (uint) {
-    return header_tree[header_hash].mainnet_num;
+  function getMainnetBlockNumber(bytes32 block_hash) public view returns (uint) {
+    return header_tree[block_hash].mainnet_num;
   }
 
   function getLatestFinalizedBlock() public view returns (bytes32) {
