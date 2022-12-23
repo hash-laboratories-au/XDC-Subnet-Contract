@@ -29,7 +29,6 @@ contract Subnet {
   mapping(int => address[]) public validator_sets;
   mapping(address => bool) public lookup;
   int public current_validator_set_pointer = 0;
-  int public current_subnet_height;
   bytes32 public latest_finalized_block;
 
   // Event types
@@ -159,14 +158,6 @@ contract Subnet {
     y[0] = RLPEncode.encodeList(x);
     y[1] = RLPEncode.encodeUint(header.gap_num);
     return keccak256(RLPEncode.encodeList(y));
-  }
-
-  function encoding(uint64 number, uint64 round_num, bytes32 parent_hash) pure public returns (bytes memory) {
-    bytes[] memory x = new bytes[](3);
-    x[0] = RLPEncode.encodeUint(number);
-    x[1] = RLPEncode.encodeUint(round_num);
-    x[2] = RLPEncode.encodeBytes(abi.encodePacked(parent_hash));
-    return RLPEncode.encodeList(x);
   }
 
   function getHeader(bytes32 header_hash) public view returns (Header memory) {
