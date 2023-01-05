@@ -17,18 +17,24 @@ contract Subnet {
     bytes src;
   }
 
+  struct Validators {
+    address[] set;
+    int threshold;
+  }
+
   address public master;
   // bytes32[] public header_tree;
   mapping(bytes32 => Header) public header_tree;
-  mapping(int => address[]) public validator_sets;
-  mapping(address => bool) public lookup;
+  mapping(int => Validators) public validator_sets;
+  mapping(address => bool) lookup;
+  mapping(address => bool) unique_addr;
   int public current_validator_set_pointer = 0;
   int public current_subnet_height;
   bytes32 public latest_finalized_block;
 
   // Event types
-  event SubnetBlockAccepted(bytes32 header_hash, int number);
-  event SubnetBlockFinalized(bytes32 header_hash, int number);
+  event SubnetBlockAccepted(bytes32 block_hash, int number);
+  event SubnetBlockFinalized(bytes32 block_hash, int number);
 
   // Modifier
   modifier onlyMaster() {
@@ -36,7 +42,7 @@ contract Subnet {
     _;
   }
 
-  constructor(address[] memory initial_validator_set, bytes memory genesis_header) public {
+  constructor(address[] memory initial_validator_set, int threshold, bytes memory genesis_header) public {
     require(initial_validator_set.length > 0, "Validator set cannot be empty");
     bytes32 genesis_header_hash = keccak256(genesis_header);
     RLPReader.RLPItem[] memory ls = RLPReader.toList(RLPReader.toRlpItem(genesis_header));
@@ -49,18 +55,25 @@ contract Subnet {
       mainnet_num: block.number,
       src: genesis_header
     });
-    validator_sets[0] = initial_validator_set;
-    for (uint i = 0; i < validator_sets[0].length; i++) {
-      lookup[validator_sets[0][i]] = true;
+    validator_sets[0] = Validators({
+      set: initial_validator_set,
+      threshold: threshold
+    });
+    for (uint i = 0; i < initial_validator_set.length; i++) {
+      lookup[initial_validator_set[i]] = true;
     }
     master = msg.sender;
     latest_finalized_block = genesis_header_hash;
   }
 
-  function reviseValidatorSet(address[] memory new_validator_set, int subnet_block_height) public onlyMaster  {
+  function reviseValidatorSet(address[] memory new_validator_set, int threshold, int subnet_block_height) public onlyMaster  {
     require(new_validator_set.length > 0, "Validator set cannot be empty");
+    require(threshold > 0, "Validation threshold cannot be 0");
     require(subnet_block_height >= current_validator_set_pointer, "Error Modify Validator History");
-    validator_sets[subnet_block_height] = new_validator_set;
+    validator_sets[subnet_block_height] = Validators({
+      set: new_validator_set,
+      threshold: threshold
+    });
   }
 
   function receiveHeader(bytes memory header) public onlyMaster { 
@@ -70,31 +83,45 @@ contract Subnet {
     require(number > 0, "Error Modify Genesis");
     require(header_tree[parent_hash].hash != 0, "Parent Hash Not Found");
     require(header_tree[parent_hash].number + 1 == number, "Invalid Parent Relation");
-    bytes32 header_hash = keccak256(header);
-    if (header_tree[header_hash].number > 0) 
+    bytes32 block_hash = keccak256(header);
+    if (header_tree[block_hash].number > 0) 
       revert("Header has been submitted");
-    if (validator_sets[number].length > 0) {
-      for (uint i = 0; i < validator_sets[current_validator_set_pointer].length; i++) {
-        lookup[validator_sets[current_validator_set_pointer][i]] = false;
+    if (validator_sets[number].set.length > 0) {
+      for (uint i = 0; i < validator_sets[current_validator_set_pointer].set.length; i++) {
+        lookup[validator_sets[current_validator_set_pointer].set[i]] = false;
       }
-      for (uint i = 0; i < validator_sets[number].length; i++) {
-        lookup[validator_sets[number][i]] = true;
+      for (uint i = 0; i < validator_sets[number].set.length; i++) {
+        lookup[validator_sets[number].set[i]] = true;
       }
       current_validator_set_pointer = number;
     }
     RLPReader.RLPItem[] memory extra = RLPReader.toList(RLPReader.toRlpItem(getExtraData(RLPReader.toBytes(ls[12]))));
     uint64 round_number = uint64(RLPReader.toUint(extra[0]));
     RLPReader.RLPItem[] memory sigs = RLPReader.toList(RLPReader.toList(extra[1])[1]);
-    if (sigs.length != validator_sets[current_validator_set_pointer].length)
-      revert("Unmatched Amount between Signers and Validators");
+    uint64 gap_number = uint64(RLPReader.toUint(RLPReader.toList(extra[1])[2]));
+
+    bytes32 signHash = createSignHash(block_hash, round_number, number, gap_number);
+    int unique_counter = 0;
+    address[] memory signer_list = new address[](sigs.length);
     for (uint i = 0; i < sigs.length; i++) {
-      address signer = recoverSigner(header_hash, RLPReader.toBytes(sigs[i]));
+      address signer = recoverSigner(signHash, RLPReader.toBytes(sigs[i]));
       if (lookup[signer] != true) {
-        revert("Verification Fail");
+        continue;
       }
+      if (!unique_addr[signer]) {
+        unique_counter ++;
+        unique_addr[signer]=true;
+      }
+      signer_list[i] = signer;
     }
-    header_tree[header_hash] = Header({
-      hash: header_hash,
+    for (uint i = 0; i < signer_list.length; i++) {
+      unique_addr[signer_list[i]] = false;
+    }
+    if (unique_counter < validator_sets[current_validator_set_pointer].threshold) {
+      revert("Verification Fail");
+    }
+    header_tree[block_hash] = Header({
+      hash: block_hash,
       number: number,
       round_num: round_number,
       parent_hash: parent_hash,
@@ -102,10 +129,10 @@ contract Subnet {
       mainnet_num: block.number,
       src: header
     });
-    emit SubnetBlockAccepted(header_hash, number);
+    emit SubnetBlockAccepted(block_hash, number);
 
     // Look for 3 consecutive round
-    bytes32 curr_hash = header_hash;
+    bytes32 curr_hash = block_hash;
     for (uint i = 0; i < 3; i++) {
       if (header_tree[curr_hash].parent_hash == 0) return;
       bytes32 parent_hash = header_tree[curr_hash].parent_hash;
@@ -158,6 +185,18 @@ contract Subnet {
     assembly { extraPtr := add(extra, 0x21) }
     RLPEncode.memcpy(extraDataPtr, extraPtr, extra.length-1);
     return extraData;
+  }
+
+  function createSignHash(bytes32 block_hash, uint64 round_num, int number, uint64 gap_num) internal pure returns (bytes32 signHash) {
+    bytes[] memory x = new bytes[](3);
+    x[0] = RLPEncode.encodeBytes(abi.encodePacked(block_hash));
+    x[1] = RLPEncode.encodeUint(round_num);
+    x[2] = RLPEncode.encodeUint(uint(number));
+
+    bytes[] memory y = new bytes[](2);
+    y[0] = RLPEncode.encodeList(x);
+    y[1] = RLPEncode.encodeUint(gap_num);
+    signHash = keccak256(RLPEncode.encodeList(y));
   }
 
   function toBytes32(bytes memory data) internal pure returns (bytes32 res) {

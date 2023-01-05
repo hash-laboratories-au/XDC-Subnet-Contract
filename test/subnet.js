@@ -134,54 +134,54 @@ contract("Subnet test", async accounts => {
     assert.deepEqual(validators, new_validators);
   });
 
-  // it("Receive New Header", async() => {
-  //   const new_validators = [];
-  //   const raw_sigs = [];
-  //   const block1 = {
-  //     "number": 1,
-  //     "round_num": 0,
-  //     "parent_hash": this.genesis_hash,
-  //   };
-  //   const block1_hash = web3.utils.sha3(Buffer.from(
-  //     RLP.encode([
-  //       util.bigIntToUnpaddedBuffer(1),
-  //       util.bigIntToUnpaddedBuffer(0),
-  //       util.toBuffer(this.genesis_hash)
-  //   ])));
-  //   for (let i = 0; i < 3; i++) {
-  //     new_validators.push(web3.eth.accounts.create());
-  //     raw_sigs.push(
-  //       secp256k1.ecdsaSign(
-  //         hex2Arr(block1_hash.substring(2)),
-  //         hex2Arr(new_validators.at(-1).privateKey.substring(2))
-  //     ));
-  //   }
+  it("Receive New Header", async() => {
+    const new_validators = [];
+    const raw_sigs = [];
+    const block1 = {
+      "number": 1,
+      "round_num": 0,
+      "parent_hash": this.genesis_hash,
+    };
+    const block1_hash = web3.utils.sha3(Buffer.from(
+      RLP.encode([
+        util.bigIntToUnpaddedBuffer(1),
+        util.bigIntToUnpaddedBuffer(0),
+        util.toBuffer(this.genesis_hash)
+    ])));
+    for (let i = 0; i < 3; i++) {
+      new_validators.push(web3.eth.accounts.create());
+      raw_sigs.push(
+        secp256k1.ecdsaSign(
+          hex2Arr(block1_hash.substring(2)),
+          hex2Arr(new_validators.at(-1).privateKey.substring(2))
+      ));
+    }
 
-  //   const sigs = raw_sigs.map(x => {
-  //     var res = new Uint8Array(65);
-  //     res.set(x.signature, 0);
-  //     res.set([x.recid], 64);
-  //     return "0x"+Buffer.from(res).toString("hex");
-  //   });
+    const sigs = raw_sigs.map(x => {
+      var res = new Uint8Array(65);
+      res.set(x.signature, 0);
+      res.set([x.recid], 64);
+      return "0x"+Buffer.from(res).toString("hex");
+    });
 
-  //   await this.subnet.reviseValidatorSet(
-  //     new_validators.map(x => x.address), 
-  //     1, {"from": accounts[0]}
-  //   );
+    await this.subnet.reviseValidatorSet(
+      new_validators.map(x => x.address), 
+      1, {"from": accounts[0]}
+    );
     
-  //   await this.subnet.receiveHeader(block1, sigs);
+    await this.subnet.receiveHeader(block1, sigs);
 
-  //   const block1_resp = await this.subnet.getHeader(block1_hash);
-  //   assert.equal(block1_resp.parent_hash, this.genesis_hash);
-  //   assert.equal(block1_resp.round_num, "0");
-  //   assert.equal(block1_resp.number, "1");
+    const block1_resp = await this.subnet.getHeader(block1_hash);
+    assert.equal(block1_resp.parent_hash, this.genesis_hash);
+    assert.equal(block1_resp.round_num, "0");
+    assert.equal(block1_resp.number, "1");
 
-  //   const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
-  //   const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
-  //   const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
-  //   assert.equal(finalized, false);
-  //   assert.equal(latest_finalized_block, this.genesis_hash);
-  // });
+    const finalized = await this.subnet.getHeaderConfirmationStatus(block1_hash);
+    const mainnet_num = await this.subnet.getMainnetBlockNumber(block1_hash);
+    const latest_finalized_block = await this.subnet.getLatestFinalizedBlock();
+    assert.equal(finalized, false);
+    assert.equal(latest_finalized_block, this.genesis_hash);
+  });
 
   // it("Confirm A Received Block", async() => {
 
