@@ -25,7 +25,7 @@ contract Subnet {
   address public master;
   // bytes32[] public header_tree;
   mapping(bytes32 => Header) public header_tree;
-  mapping(int => Validators) public validator_sets;
+  mapping(int => Validators) validator_sets;
   mapping(address => bool) lookup;
   mapping(address => bool) unique_addr;
   int public current_validator_set_pointer = 0;
@@ -80,9 +80,12 @@ contract Subnet {
     RLPReader.RLPItem[] memory ls = RLPReader.toList(RLPReader.toRlpItem(header));
     int number = int(RLPReader.toUint(ls[8]));
     bytes32 parent_hash = toBytes32(RLPReader.toBytes(ls[0]));
+    RLPReader.RLPItem[] memory extra = RLPReader.toList(RLPReader.toRlpItem(getExtraData(RLPReader.toBytes(ls[12]))));
+    uint64 round_number = uint64(RLPReader.toUint(extra[0]));
     require(number > 0, "Error Modify Genesis");
     require(header_tree[parent_hash].hash != 0, "Parent Hash Not Found");
     require(header_tree[parent_hash].number + 1 == number, "Invalid Parent Relation");
+    require(header_tree[parent_hash].round_num < round_number, "Invalid Round Number");
     bytes32 block_hash = keccak256(header);
     if (header_tree[block_hash].number > 0) 
       revert("Header has been submitted");
@@ -95,12 +98,10 @@ contract Subnet {
       }
       current_validator_set_pointer = number;
     }
-    RLPReader.RLPItem[] memory extra = RLPReader.toList(RLPReader.toRlpItem(getExtraData(RLPReader.toBytes(ls[12]))));
-    uint64 round_number = uint64(RLPReader.toUint(extra[0]));
     RLPReader.RLPItem[] memory sigs = RLPReader.toList(RLPReader.toList(extra[1])[1]);
     uint64 gap_number = uint64(RLPReader.toUint(RLPReader.toList(extra[1])[2]));
 
-    bytes32 signHash = createSignHash(block_hash, round_number, number, gap_number);
+    bytes32 signHash = createSignHash(parent_hash, round_number, number, gap_number);
     int unique_counter = 0;
     address[] memory signer_list = new address[](sigs.length);
     for (uint i = 0; i < sigs.length; i++) {
@@ -135,9 +136,9 @@ contract Subnet {
     bytes32 curr_hash = block_hash;
     for (uint i = 0; i < 3; i++) {
       if (header_tree[curr_hash].parent_hash == 0) return;
-      bytes32 parent_hash = header_tree[curr_hash].parent_hash;
-      if (header_tree[curr_hash].round_num != header_tree[parent_hash].round_num+1) return;
-      curr_hash = parent_hash;
+      bytes32 prev_hash = header_tree[curr_hash].parent_hash;
+      if (header_tree[curr_hash].round_num != header_tree[prev_hash].round_num+1) return;
+      curr_hash = prev_hash;
     }
     latest_finalized_block = curr_hash;
     // Confirm all ancestor unconfirmed block
@@ -147,7 +148,6 @@ contract Subnet {
       curr_hash = header_tree[curr_hash].parent_hash;
     }
   }
-
 
   /// signature methods.
   function splitSignature(bytes memory sig)
@@ -221,4 +221,19 @@ contract Subnet {
     return latest_finalized_block;
   }
 
+  function getValidatorSet(int height) public view returns (address[] memory res) {
+    if (validator_sets[height].threshold == 0) {
+      res = new address[](0);
+    } else {
+      res = validator_sets[height].set;
+    }
+  }
+
+  function getValidatorThreshold(int height) public view returns (int res) {
+    if (validator_sets[height].threshold == 0) {
+      res = 0;
+    } else {
+      res = validator_sets[height].threshold;
+    }
+  }
 }
