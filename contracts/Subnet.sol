@@ -22,12 +22,11 @@ contract Subnet {
     int threshold;
   }
 
-  address public master;
-  // bytes32[] public header_tree;
   mapping(bytes32 => Header) public header_tree;
   mapping(int => Validators) validator_sets;
   mapping(address => bool) lookup;
   mapping(address => bool) unique_addr;
+  mapping(address => bool) public masters;
   int public current_validator_set_pointer = 0;
   int public current_subnet_height;
   bytes32 public latest_finalized_block;
@@ -37,8 +36,8 @@ contract Subnet {
   event SubnetBlockFinalized(bytes32 block_hash, int number);
 
   // Modifier
-  modifier onlyMaster() {
-    if (msg.sender != master) revert("Master Only");
+  modifier onlyMasters() {
+    if (!masters[msg.sender]) revert("Masters Only");
     _;
   }
 
@@ -62,11 +61,19 @@ contract Subnet {
     for (uint i = 0; i < initial_validator_set.length; i++) {
       lookup[initial_validator_set[i]] = true;
     }
-    master = msg.sender;
+    masters[msg.sender] = true;
     latest_finalized_block = genesis_header_hash;
   }
 
-  function reviseValidatorSet(address[] memory new_validator_set, int threshold, int subnet_block_height) public onlyMaster  {
+  function addMaster(address master) public onlyMasters {
+    masters[master] = true;
+  }
+
+  function removeMaster(address master) public onlyMasters {
+    masters[master] = false;
+  }
+
+  function reviseValidatorSet(address[] memory new_validator_set, int threshold, int subnet_block_height) public onlyMasters  {
     require(new_validator_set.length > 0, "Validator set cannot be empty");
     require(threshold > 0, "Validation threshold cannot be 0");
     require(subnet_block_height >= current_validator_set_pointer, "Error Modify Validator History");
@@ -76,7 +83,7 @@ contract Subnet {
     });
   }
 
-  function receiveHeader(bytes memory header) public onlyMaster { 
+  function receiveHeader(bytes memory header) public onlyMasters { 
     RLPReader.RLPItem[] memory ls = RLPReader.toList(RLPReader.toRlpItem(header));
     int number = int(RLPReader.toUint(ls[8]));
     bytes32 parent_hash = toBytes32(RLPReader.toBytes(ls[0]));
